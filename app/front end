@@ -1,1 +1,164 @@
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View, Alert } from "react-native";
 
+type StopTime = {
+  stopId: string;
+  arrival: number | null;
+};
+
+type Trip = {
+  tripId: string;
+  stopTimes: StopTime[];
+};
+
+export default function App() {
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTrips = async () => {
+    try {
+      setError(null);
+      // For physical devices, use your computer's IP instead of localhost
+      // const API_URL = "http://YOUR_COMPUTER_IP:3001/a-train"; // For physical device
+      const API_URL = "http://localhost:3001/a-train"; // For simulator
+      
+      console.log("Fetching from:", API_URL);
+      
+      const res = await fetch(API_URL);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      console.log("Received data:", data);
+      
+      setTrips(data.trips || []);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error("Error fetching trips:", err);
+      setError(err.message);
+      setTrips([]);
+      
+      // Show alert for better debugging
+      Alert.alert(
+        "Connection Error", 
+        `Could not connect to backend: ${err.message}\n\nMake sure your backend server is running on port 3001.`,
+        [{ text: "OK" }]
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrips();
+    const interval = setInterval(fetchTrips, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchTrips();
+  };
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
+      <Text style={styles.header}>A Train Arrivals</Text>
+      <Text style={styles.subheader}>Last updated: {lastUpdated.toLocaleTimeString()}</Text>
+      
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Error: {error}</Text>
+          <Text style={styles.errorHelp}>
+            Make sure your backend server is running with: npm run server
+          </Text>
+        </View>
+      )}
+      
+      {loading ? (
+        <ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 32 }} />
+      ) : trips.length === 0 && !error ? (
+        <Text style={styles.noData}>No arrival data available.</Text>
+      ) : (
+        trips.map((trip) => (
+          <View key={trip.tripId} style={styles.tripCard}>
+            <Text style={styles.tripId}>Trip: {trip.tripId}</Text>
+            {trip.stopTimes.slice(0, 3).map((st, idx) => (
+              <Text key={idx} style={styles.stopTime}>
+                Stop: {st.stopId} — Arrival:{" "}
+                {st.arrival ? new Date(st.arrival * 1000).toLocaleTimeString() : "N/A"}
+              </Text>
+            ))}
+          </View>
+        ))
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    padding: 24,
+    backgroundColor: "#f1f5f9",
+    minHeight: "100%",
+  },
+  header: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#2563eb",
+    marginBottom: 8,
+  },
+  subheader: {
+    fontSize: 14,
+    color: "#64748b",
+    marginBottom: 16,
+  },
+  noData: {
+    color: "#64748b",
+    textAlign: "center",
+    marginTop: 32,
+  },
+  tripCard: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tripId: {
+    fontWeight: "bold",
+    marginBottom: 8,
+    color: "#0f172a",
+  },
+  stopTime: {
+    color: "#334155",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  errorContainer: {
+    backgroundColor: "#fee2e2",
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: "#dc2626",
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  errorHelp: {
+    color: "#7f1d1d",
+    fontSize: 12,
+  },
+});
