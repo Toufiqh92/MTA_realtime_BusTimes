@@ -1,15 +1,16 @@
 // File: app/(tabs)/a-train.tsx
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { 
-  ActivityIndicator, 
-  RefreshControl, 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
   View,
-  Platform
+  Platform,
 } from "react-native";
+import * as Location from "expo-location";
 
 type StopTime = {
   stopId: string;
@@ -26,49 +27,71 @@ export default function ATrainScreen() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(
+    null
+  );
 
-  // Platform-specific API URL function
+  // Ask for GPS location on mount
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        console.warn("Permission to access location denied");
+        return;
+      }
+      let loc = await Location.getCurrentPositionAsync({});
+      setCoords({ lat: loc.coords.latitude, lon: loc.coords.longitude });
+      console.log("Lat:", loc.coords.latitude, "Lon:", loc.coords.longitude);
+    })();
+  }, []);
+
+  // Build API URL dynamically
   const getApiUrl = () => {
-    if (Platform.OS === 'web') {
-      return `http://${window.location.hostname}:3001/a-train`;
-    } else if (Platform.OS === 'android') {
-      return 'http://10.0.2.2:3001/a-train';
-    } else {
-      return 'http://localhost:3001/a-train';
+    const base =
+      Platform.OS === "web"
+        ? `http://${window.location.hostname}:3001`
+        : Platform.OS === "android"
+        ? "http://10.0.2.2:3001"
+        : "http://localhost:3001";
+
+    if (coords) {
+      return `${base}/a-train?lat=${coords.lat}&lon=${coords.lon}`;
     }
+    return `${base}/a-train`; // fallback until GPS loads
   };
 
-  // Format arrival time for better display
+  // Format arrival time for display
   const formatArrivalTime = (timestamp: number | null) => {
     if (!timestamp) return "N/A";
-    
+
     const now = Math.floor(Date.now() / 1000);
     const diffInMinutes = Math.floor((timestamp - now) / 60);
-    
+
     if (diffInMinutes <= 0) return "Due";
     if (diffInMinutes < 60) return `${diffInMinutes} min`;
-    
-    return new Date(timestamp * 1000).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+
+    return new Date(timestamp * 1000).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
+  // Fetch train trips
   const fetchTrips = async () => {
     try {
       const API_URL = getApiUrl();
-      
+
       console.log("Fetching from:", API_URL);
-      
+
       const res = await fetch(API_URL);
-      
+
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
-      
+
       const data = await res.json();
       console.log("Received data:", data);
-      
+
       setTrips(data.trips || []);
       setLastUpdated(new Date());
     } catch (err) {
@@ -80,11 +103,14 @@ export default function ATrainScreen() {
     }
   };
 
+  // Run fetch when coords change (so it waits for GPS first)
   useEffect(() => {
-    fetchTrips();
-    const interval = setInterval(fetchTrips, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    if (coords) {
+      fetchTrips();
+      const interval = setInterval(fetchTrips, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [coords]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -94,17 +120,23 @@ export default function ATrainScreen() {
   return (
     <ScrollView
       contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
     >
       <View style={styles.headerContainer}>
         <Text style={styles.header}>A Train Arrivals</Text>
-        <Text style={styles.subheader}>Last updated: {lastUpdated.toLocaleTimeString()}</Text>
+        <Text style={styles.subheader}>
+          Last updated: {lastUpdated.toLocaleTimeString()}
+        </Text>
       </View>
-      
+
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Loading arrival data...</Text>
+          <Text style={styles.loadingText}>
+            {coords ? "Loading arrival data..." : "Fetching GPS location..."}
+          </Text>
         </View>
       ) : trips.length === 0 ? (
         <View style={styles.centerContainer}>
@@ -120,12 +152,15 @@ export default function ATrainScreen() {
                 {trip.stopTimes.slice(0, 5).map((st, idx) => (
                   <View key={idx} style={styles.stopTimeRow}>
                     <Text style={styles.stopId}>{st.stopId}</Text>
-                    <Text style={[
-                      styles.arrivalTime,
-                      st.arrival && Math.floor((st.arrival - Date.now()/1000) / 60) < 2 
-                        ? styles.arrivingSoon 
-                        : null
-                    ]}>
+                    <Text
+                      style={[
+                        styles.arrivalTime,
+                        st.arrival &&
+                        Math.floor((st.arrival - Date.now() / 1000) / 60) < 2
+                          ? styles.arrivingSoon
+                          : null,
+                      ]}
+                    >
                       {formatArrivalTime(st.arrival)}
                     </Text>
                   </View>
@@ -147,7 +182,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginBottom: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   header: {
     fontSize: 28,
@@ -161,8 +196,8 @@ const styles = StyleSheet.create({
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 40,
   },
   loadingText: {
@@ -205,9 +240,9 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   stopTimeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f9f9f9",
@@ -215,15 +250,15 @@ const styles = StyleSheet.create({
   stopId: {
     fontSize: 16,
     color: "#555",
-    fontWeight: '500',
+    fontWeight: "500",
   },
   arrivalTime: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     color: "#007AFF",
   },
   arrivingSoon: {
-    color: '#FF3B30',
-    fontWeight: 'bold',
-  }
+    color: "#FF3B30",
+    fontWeight: "bold",
+  },
 });

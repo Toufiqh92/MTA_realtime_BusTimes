@@ -1,11 +1,13 @@
 // backend/server.js
-const dotenv = require("dotenv");
-const express = require("express");
-const cors = require("cors"); // Add this
-const pkg = require("gtfs-realtime-bindings");
-const fetch = require("node-fetch");
-const { transit_realtime } = pkg;
+// backend/server.js - ESM version
+import dotenv from "dotenv";
+import express from "express";
+import cors from "cors";
+import pkg from "gtfs-realtime-bindings";
+import fetch from "node-fetch"; // Now compatible with v3
 
+const { transit_realtime } = pkg;
+// ... rest of your code
 dotenv.config();
 
 const app = express();
