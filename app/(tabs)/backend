@@ -1,0 +1,94 @@
+import dotenv from "dotenv";
+import express from "express";
+import pkg from "gtfs-realtime-bindings";
+import fetch from "node-fetch";
+const { transit_realtime } = pkg;
+
+// Load environment variables from the backend folder
+dotenv.config({ path: "./backend/.env" });
+
+const app = express();
+const PORT = 3001;
+const API_KEY = process.env.MTA_API_KEY;
+const FEED_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace";
+
+console.log("Starting MTA Backend Server...");
+console.log("API Key exists:", !!API_KEY);
+
+// Enable CORS for frontend requests
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  next();
+});
+
+// Root endpoint - test if server is working
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "MTA Backend is running", 
+    status: "OK",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ 
+    status: "healthy",
+    serverTime: new Date().toISOString(),
+    hasApiKey: !!API_KEY
+  });
+});
+
+// A Train data endpoint
+app.get("/a-train", async (req, res) => {
+  console.log("Received request for /a-train");
+  try {
+    if (!API_KEY) {
+      throw new Error("MTA_API_KEY is missing from environment variables");
+    }
+
+    console.log("Fetching data from MTA API...");
+    const response = await fetch(FEED_URL, {
+      headers: { "x-api-key": API_KEY },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`MTA API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const buffer = await response.arrayBuffer();
+    const feed = transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+
+    const aTrainTrips = feed.entity
+      .filter((entity) => entity.tripUpdate?.trip?.routeId === "A")
+      .map((entity) => ({
+        tripId: entity.tripUpdate.trip.tripId,
+        stopTimes: entity.tripUpdate.stopTimeUpdate.map((st) => ({
+          stopId: st.stopId,
+          arrival: st.arrival?.time || null,
+        })),
+      }));
+
+    console.log(`Found ${aTrainTrips.length} A train trips`);
+    res.json({ 
+      success: true,
+      trips: aTrainTrips,
+      count: aTrainTrips.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Backend error:", err.message);
+    res.status(500).json({ 
+      success: false,
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Backend server running on http://localhost:${PORT}`);
+  console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  console.log(`📍 A Train data: http://localhost:${PORT}/a-train`);
+});
