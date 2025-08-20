@@ -1,16 +1,15 @@
 // File: app/(tabs)/a-train.tsx
-
-import React, { useEffect, useState } from "react";
+import * as React from "react";
+import { useEffect, useState } from "react";
 import { 
   ActivityIndicator, 
   RefreshControl, 
   ScrollView, 
   StyleSheet, 
   Text, 
-  View, 
-  Alert
+  View,
+  Platform
 } from "react-native";
-import { API_CONFIG } from "/workspaces/MTA_realtime_BusTimes/app/(tabs)/config.js";
 
 type StopTime = {
   stopId: string;
@@ -27,12 +26,37 @@ export default function ATrainScreen() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Platform-specific API URL function
+  const getApiUrl = () => {
+    if (Platform.OS === 'web') {
+      return `http://${window.location.hostname}:3001/a-train`;
+    } else if (Platform.OS === 'android') {
+      return 'http://10.0.2.2:3001/a-train';
+    } else {
+      return 'http://localhost:3001/a-train';
+    }
+  };
+
+  // Format arrival time for better display
+  const formatArrivalTime = (timestamp: number | null) => {
+    if (!timestamp) return "N/A";
+    
+    const now = Math.floor(Date.now() / 1000);
+    const diffInMinutes = Math.floor((timestamp - now) / 60);
+    
+    if (diffInMinutes <= 0) return "Due";
+    if (diffInMinutes < 60) return `${diffInMinutes} min`;
+    
+    return new Date(timestamp * 1000).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
 
   const fetchTrips = async () => {
     try {
-      setError(null);
-      const API_URL = `${API_CONFIG.baseUrl}/a-train`;
+      const API_URL = getApiUrl();
       
       console.log("Fetching from:", API_URL);
       
@@ -49,7 +73,6 @@ export default function ATrainScreen() {
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Error fetching trips:", err);
-      setError((err as Error).message);
       setTrips([]);
     } finally {
       setLoading(false);
@@ -68,22 +91,6 @@ export default function ATrainScreen() {
     fetchTrips();
   };
 
-  // Format arrival time
-  const formatArrivalTime = (timestamp: number | null) => {
-    if (!timestamp) return "N/A";
-    
-    const now = Math.floor(Date.now() / 1000);
-    const diffInMinutes = Math.floor((timestamp - now) / 60);
-    
-    if (diffInMinutes <= 0) return "Due";
-    if (diffInMinutes < 60) return `${diffInMinutes} min`;
-    
-    return new Date(timestamp * 1000).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-  };
-
   return (
     <ScrollView
       contentContainerStyle={styles.container}
@@ -96,25 +103,26 @@ export default function ATrainScreen() {
       
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.loadingText}>Loading arrival data...</Text>
         </View>
       ) : trips.length === 0 ? (
         <View style={styles.centerContainer}>
           <Text style={styles.noData}>No arrival data available.</Text>
+          <Text style={styles.helpText}>Pull down to refresh</Text>
         </View>
       ) : (
         <View style={styles.tripsContainer}>
           {trips.map((trip) => (
             <View key={trip.tripId} style={styles.tripCard}>
-              <Text style={styles.tripId}>Trip ID: {trip.tripId}</Text>
+              <Text style={styles.tripId}>Trip: {trip.tripId}</Text>
               <View style={styles.stopTimesContainer}>
                 {trip.stopTimes.slice(0, 5).map((st, idx) => (
                   <View key={idx} style={styles.stopTimeRow}>
                     <Text style={styles.stopId}>{st.stopId}</Text>
                     <Text style={[
                       styles.arrivalTime,
-                      st.arrival && Math.floor((st.arrival - Date.now()/1000) / 60) < 5 
+                      st.arrival && Math.floor((st.arrival - Date.now()/1000) / 60) < 2 
                         ? styles.arrivingSoon 
                         : null
                     ]}>
@@ -164,6 +172,11 @@ const styles = StyleSheet.create({
   noData: {
     color: "#666",
     fontSize: 18,
+    marginBottom: 8,
+  },
+  helpText: {
+    color: "#999",
+    fontSize: 14,
   },
   tripsContainer: {
     marginBottom: 20,
