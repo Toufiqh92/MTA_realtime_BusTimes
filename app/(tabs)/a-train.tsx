@@ -1,6 +1,4 @@
-// File: app/(tabs)/a-train.tsx
-import * as React from "react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -22,243 +20,133 @@ type Trip = {
   stopTimes: StopTime[];
 };
 
+type Station = {
+  stopId: string;
+  name: string;
+  lat: number;
+  lon: number;
+  distance: number;
+};
+
 export default function ATrainScreen() {
-  const [trips, setTrips] = useState<Trip[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
+  const [arrivals, setArrivals] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
-  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(
-    null
-  );
+  const [error, setError] = useState<string | null>(null);
 
-  // Ask for GPS location on mount
-  useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        console.warn("Permission to access location denied");
-        return;
-      }
-      let loc = await Location.getCurrentPositionAsync({});
-      setCoords({ lat: loc.coords.latitude, lon: loc.coords.longitude });
-      console.log("Lat:", loc.coords.latitude, "Lon:", loc.coords.longitude);
-    })();
-  }, []);
-
-  // Build API URL dynamically
   const getApiUrl = () => {
-    const base =
-      Platform.OS === "web"
-        ? `http://${window.location.hostname}:3001`
-        : Platform.OS === "android"
-        ? "http://10.0.2.2:3001"
-        : "http://localhost:3001";
-
-    if (coords) {
-      return `${base}/a-train?lat=${coords.lat}&lon=${coords.lon}`;
-    }
-    return `${base}/a-train`; // fallback until GPS loads
+    if (Platform.OS === "web" || Platform.OS === "ios") return "http://localhost:3001/nearest-a";
+    if (Platform.OS === "android") return "http://10.0.2.2:3001/nearest-a";
+    return "http://localhost:3001/nearest-a";
   };
 
-  // Format arrival time for display
   const formatArrivalTime = (timestamp: number | null) => {
     if (!timestamp) return "N/A";
-
     const now = Math.floor(Date.now() / 1000);
-    const diffInMinutes = Math.floor((timestamp - now) / 60);
-
-    if (diffInMinutes <= 0) return "Due";
-    if (diffInMinutes < 60) return `${diffInMinutes} min`;
-
-    return new Date(timestamp * 1000).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const diffMinutes = Math.floor((timestamp - now) / 60);
+    if (diffMinutes <= 0) return "Due";
+    if (diffMinutes < 60) return `${diffMinutes} min`;
+    return new Date(timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // Fetch train trips
-  const fetchTrips = async () => {
+  const fetchNearestStations = async () => {
+    setLoading(true);
+    setError(null);
+
     try {
-      const API_URL = getApiUrl();
-
-      console.log("Fetching from:", API_URL);
-
-      const res = await fetch(API_URL);
-
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setError("Location permission denied");
+        setLoading(false);
+        return;
       }
 
-      const data = await res.json();
-      console.log("Received data:", data);
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = location.coords;
 
-      setTrips(data.trips || []);
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error("Error fetching trips:", err);
-      setTrips([]);
+      const res = await fetch(`${getApiUrl()}?lat=${latitude}&lon=${longitude}`);
+      if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+
+      const data = await res.json();
+      setStations(data.nearestStations || []);
+      setArrivals(data.arrivals || []);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to fetch data");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Run fetch when coords change (so it waits for GPS first)
   useEffect(() => {
-    if (coords) {
-      fetchTrips();
-      const interval = setInterval(fetchTrips, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [coords]);
+    fetchNearestStations();
+    const interval = setInterval(fetchNearestStations, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchTrips();
+    fetchNearestStations();
   };
 
   return (
     <ScrollView
       contentContainerStyle={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <View style={styles.headerContainer}>
-        <Text style={styles.header}>A Train Arrivals</Text>
-        <Text style={styles.subheader}>
-          Last updated: {lastUpdated.toLocaleTimeString()}
-        </Text>
-      </View>
+      <Text style={styles.header}>Nearest A Train Stations</Text>
 
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>
-            {coords ? "Loading arrival data..." : "Fetching GPS location..."}
-          </Text>
+          <Text>Loading arrival data...</Text>
         </View>
-      ) : trips.length === 0 ? (
+      ) : error ? (
         <View style={styles.centerContainer}>
-          <Text style={styles.noData}>No arrival data available.</Text>
-          <Text style={styles.helpText}>Pull down to refresh</Text>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : stations.length === 0 ? (
+        <View style={styles.centerContainer}>
+          <Text>No stations nearby.</Text>
         </View>
       ) : (
-        <View style={styles.tripsContainer}>
-          {trips.map((trip) => (
-            <View key={trip.tripId} style={styles.tripCard}>
-              <Text style={styles.tripId}>Trip: {trip.tripId}</Text>
-              <View style={styles.stopTimesContainer}>
-                {trip.stopTimes.slice(0, 5).map((st, idx) => (
-                  <View key={idx} style={styles.stopTimeRow}>
-                    <Text style={styles.stopId}>{st.stopId}</Text>
-                    <Text
-                      style={[
-                        styles.arrivalTime,
-                        st.arrival &&
-                        Math.floor((st.arrival - Date.now() / 1000) / 60) < 2
-                          ? styles.arrivingSoon
-                          : null,
-                      ]}
-                    >
-                      {formatArrivalTime(st.arrival)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+        stations.map((station) => {
+          const stationArrivals = arrivals
+            .map((t) => ({
+              tripId: t.tripId,
+              stopTime: t.stopTimes.find((s) => s.stopId === station.stopId),
+            }))
+            .filter((t) => t.stopTime);
+
+          return (
+            <View key={station.stopId} style={styles.stationCard}>
+              <Text style={styles.stationName}>{station.name}</Text>
+              {stationArrivals.length === 0 ? (
+                <Text style={styles.noData}>No upcoming arrivals</Text>
+              ) : (
+                stationArrivals.map((t, idx) => (
+                  <Text key={idx} style={styles.arrivalText}>
+                    Trip {t.tripId}: {formatArrivalTime(t.stopTime?.arrival ?? null)}
+                  </Text>
+                ))
+              )}
             </View>
-          ))}
-        </View>
+          );
+        })
       )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 16,
-    backgroundColor: "#f5f5f5",
-  },
-  headerContainer: {
-    marginBottom: 20,
-    alignItems: "center",
-  },
-  header: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#007AFF",
-    marginBottom: 8,
-  },
-  subheader: {
-    fontSize: 16,
-    color: "#666",
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 40,
-  },
-  loadingText: {
-    marginTop: 16,
-    color: "#666",
-  },
-  noData: {
-    color: "#666",
-    fontSize: 18,
-    marginBottom: 8,
-  },
-  helpText: {
-    color: "#999",
-    fontSize: 14,
-  },
-  tripsContainer: {
-    marginBottom: 20,
-  },
-  tripCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  tripId: {
-    fontWeight: "bold",
-    fontSize: 18,
-    marginBottom: 12,
-    color: "#333",
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    paddingBottom: 8,
-  },
-  stopTimesContainer: {
-    marginLeft: 8,
-  },
-  stopTimeRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f9f9f9",
-  },
-  stopId: {
-    fontSize: 16,
-    color: "#555",
-    fontWeight: "500",
-  },
-  arrivalTime: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#007AFF",
-  },
-  arrivingSoon: {
-    color: "#FF3B30",
-    fontWeight: "bold",
-  },
+  container: { padding: 16, backgroundColor: "#f5f5f5", flexGrow: 1 },
+  centerContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 40 },
+  header: { fontSize: 28, fontWeight: "bold", color: "#007AFF", marginBottom: 20, textAlign: "center" },
+  errorText: { color: "red", fontSize: 16, textAlign: "center" },
+  stationCard: { backgroundColor: "#fff", padding: 16, borderRadius: 12, marginBottom: 16, elevation: 3 },
+  stationName: { fontSize: 18, fontWeight: "bold", marginBottom: 8 },
+  arrivalText: { fontSize: 16, color: "#007AFF", marginBottom: 4 },
+  noData: { fontSize: 16, color: "#666" },
 });
