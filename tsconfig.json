@@ -13,6 +13,6 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
-    "app/(tabs)/config.js"
-, "app/backend.js", "backend/server.js"  ]
+    "frontend/App/config.js"
+, "frontend/backend.js", "backend/server.js"  ]
 }
