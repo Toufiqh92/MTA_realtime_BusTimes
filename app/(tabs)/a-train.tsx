@@ -9,6 +9,10 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 
+// Use EXPO_PUBLIC_API_BASE_URL if present
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "https://bookish-meme-wrx5j4vvw695cvgxp-3001.app.github.dev";
+
+
 type StopTime = {
   routeId: string;
   routeShortName: string;
@@ -30,10 +34,10 @@ export default function BusScreen() {
   const [usingMock, setUsingMock] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const CODESPACE_URL = "https://bookish-meme-wrx5j4vvw695cvgxp-3001.app.github.dev";
-  const getStopsApiUrl = () => `${CODESPACE_URL}/nearest-bus`;
-  const getArrivalsApiUrl = () => `${CODESPACE_URL}/bus-times`;
+  const getStopsApiUrl = () => `${API_BASE_URL}/nearest-bus`;
+  const getArrivalsApiUrl = () => `${API_BASE_URL}/bus-times`;
 
   // Mock fallback
   const mockStops: Stop[] = [
@@ -43,10 +47,11 @@ export default function BusScreen() {
 
   const fetchData = async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        console.warn("Location permission denied. Using mock data.");
+        setErrorMessage("Location permission denied. Showing mock data.");
         setStops(mockStops);
         setUsingMock(true);
         setLastUpdated(new Date());
@@ -59,25 +64,39 @@ export default function BusScreen() {
 
       // Fetch nearest bus stops
       const stopsRes = await fetch(`${getStopsApiUrl()}?lat=${lat}&lon=${lon}`);
+      if (!stopsRes.ok) {
+        throw new Error(`Stops API error: ${stopsRes.status}`);
+      }
       const stopsData = await stopsRes.json();
-      const nearestStops: Stop[] = stopsData.nearestStops;
+      const nearestStops: Stop[] = Array.isArray(stopsData?.nearestStops) ? stopsData.nearestStops : [];
+
+      if (nearestStops.length === 0) {
+        setErrorMessage("No nearby stops found. Showing mock data.");
+        setStops(mockStops);
+        setUsingMock(true);
+        setLastUpdated(new Date());
+        return;
+      }
 
       // Fetch arrivals for nearest stops
       const stopIds = nearestStops.map((s) => s.stopId).join(",");
       const arrivalsRes = await fetch(`${getArrivalsApiUrl()}?stops=${stopIds}`);
+      if (!arrivalsRes.ok) {
+        throw new Error(`Arrivals API error: ${arrivalsRes.status}`);
+      }
       const arrivalsData = await arrivalsRes.json();
 
       // Merge arrivals into stops
       const stopsWithArrivals = nearestStops.map((s) => {
-        const stopArrivals = arrivalsData.stops.find((a: any) => a.stopId === s.stopId)?.arrivals || [];
+        const stopArrivals = (arrivalsData?.stops || []).find((a: any) => a.stopId === s.stopId)?.arrivals || [];
         return { ...s, arrivals: stopArrivals.slice(0, 3) }; // next 3 arrivals
       });
 
       setStops(stopsWithArrivals);
       setUsingMock(false);
       setLastUpdated(new Date());
-    } catch (err) {
-      console.warn("Using mock data due to fetch error:", err);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Unknown error. Showing mock data.");
       setStops(mockStops);
       setUsingMock(true);
       setLastUpdated(new Date());
@@ -125,6 +144,7 @@ export default function BusScreen() {
         Nearest Bus Stops {usingMock ? "(Mock)" : ""}
       </Text>
       {lastUpdated && <Text style={styles.updated}>Updated: {lastUpdated.toLocaleTimeString()}</Text>}
+      {errorMessage && <Text style={[styles.updated, { color: "#c00" }]}>{errorMessage}</Text>}
       {stops.length === 0 && <Text style={styles.noData}>No stops found</Text>}
 
       {stops.map((stop) => (

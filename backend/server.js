@@ -21,10 +21,14 @@ app.get("/nearest-bus", async (req, res) => {
     const lon = parseFloat(req.query.lon);
     if (isNaN(lat) || isNaN(lon)) return res.status(400).json({ error: "lat and lon required" });
 
-    // Fetch all stops for MTA NYCT
-    const stopsRes = await fetch(
-      `https://bustime.mta.info/api/where/stops-for-agency/MTA%20NYCT.json?key=${API_KEY}`
-    );
+    if (!API_KEY) return res.status(500).json({ error: "Server missing MTA_API_KEY" });
+
+    // Fetch nearby stops using location-aware endpoint
+    const url = `https://bustime.mta.info/api/where/stops-for-location.json?key=${API_KEY}&lat=${lat}&lon=${lon}&radius=800`;
+    const stopsRes = await fetch(url);
+    if (!stopsRes.ok) {
+      return res.status(502).json({ error: `Upstream stops API error: ${stopsRes.status}` });
+    }
     const stopsData = await stopsRes.json();
 
     const nearestStops = (stopsData.data?.list || [])
@@ -48,22 +52,29 @@ app.get("/nearest-bus", async (req, res) => {
 // Endpoint: upcoming arrivals at nearest stops
 app.get("/bus-times", async (req, res) => {
   try {
-    const stopIds = (req.query.stops || "").split(",");
-    if (!stopIds.length) return res.status(400).json({ error: "stops query param required" });
+    const stopIds = String(req.query.stops || "").split(",").filter(Boolean);
+    if (stopIds.length === 0) return res.status(400).json({ error: "stops query param required" });
+
+    if (!API_KEY) return res.status(500).json({ error: "Server missing MTA_API_KEY" });
 
     const arrivalPromises = stopIds.map(async (stopId) => {
-      const stopRes = await fetch(
-        `https://bustime.mta.info/api/where/arrivals-and-departures-for-stop/${stopId}.json?key=${API_KEY}`
-      );
+      const stopUrl = `https://bustime.mta.info/api/where/arrivals-and-departures-for-stop/${stopId}.json?key=${API_KEY}`;
+      const stopRes = await fetch(stopUrl);
+      if (!stopRes.ok) {
+        return { stopId, arrivals: [] };
+      }
       const data = await stopRes.json();
-      const predictions = data.data?.entry?.predictions || [];
+      const arrs = data.data?.entry?.arrivalsAndDepartures || [];
       return {
         stopId,
-        arrivals: predictions.map((p) => ({
-          routeId: p.routeId,
-          routeShortName: p.routeShortName,
-          arrivalTime: p.arrivalTime, // ISO string
-        })),
+        arrivals: arrs.map((p) => {
+          const arrivalMs = p.predictedArrivalTime || p.scheduledArrivalTime || p.predictedDepartureTime || p.scheduledDepartureTime || null;
+          return {
+            routeId: p.routeId,
+            routeShortName: p.routeShortName || p.routeId,
+            arrivalTime: arrivalMs ? new Date(arrivalMs).toISOString() : null,
+          };
+        }),
       };
     });
 
