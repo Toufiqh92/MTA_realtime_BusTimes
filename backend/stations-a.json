@@ -1,0 +1,12 @@
+[
+  { "stopId": "123", "name": "Main St", "lat": 40.620, "lon": -73.995 },
+  { "stopId": "456", "name": "Broadway", "lat": 40.621, "lon": -73.996 },
+  { "stopId": "789", "name": "5th Ave & 42nd St", "lat": 40.748433, "lon": -73.985656 },
+  { "stopId": "101", "name": "Madison Ave & 57th St", "lat": 40.7580, "lon": -73.9742 },
+  { "stopId": "102", "name": "Park Ave & 59th St", "lat": 40.7624, "lon": -73.9738 },
+  { "stopId": "103", "name": "Lexington Ave & 60th St", "lat": 40.7638, "lon": -73.9699 },
+  { "stopId": "104", "name": "3rd Ave & 61st St", "lat": 40.7649, "lon": -73.9642 },
+  { "stopId": "105", "name": "2nd Ave & 62nd St", "lat": 40.7658, "lon": -73.9601 },
+  { "stopId": "106", "name": "1st Ave & 63rd St", "lat": 40.7667, "lon": -73.9559 },
+  { "stopId": "107", "name": "York Ave & 64th St", "lat": 40.7675, "lon": -73.9518 }
+]

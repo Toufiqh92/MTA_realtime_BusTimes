@@ -37,6 +37,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "EXPO_PUBLIC_API_BASE_URL": "https://bookish-meme-wrx5j4vvw695cvgxp-3001.app.github.dev"
     }
   }
 }
