@@ -2,17 +2,43 @@ import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import supabase from "./supabaseClient.js"
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-
 const API_KEY = process.env.MTA_API_KEY;
 
-
+// Middleware 
 app.use(cors());
 app.use(express.json());
+
+app.post("/signup", async (req, res) => {
+  const { email, password } = req.body;
+
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true, 
+  });
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ user: data });
+});
+
+// Login
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ session: data.session, user: data.user });
+});
 
 // Endpoint: nearest bus stops
 app.get("/nearest-bus", async (req, res) => {
