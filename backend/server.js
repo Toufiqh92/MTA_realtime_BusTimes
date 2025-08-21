@@ -1,12 +1,12 @@
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-import dotenv from "dotenv";
-dotenv.config();
 
 const API_KEY = process.env.MTA_API_KEY;
 
