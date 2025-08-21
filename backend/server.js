@@ -1,95 +1,84 @@
 import express from "express";
 import cors from "cors";
-import fs from "fs";
-import path from "path";
-import pkg from "gtfs-realtime-bindings";
 import fetch from "node-fetch";
 
-const { transit_realtime } = pkg;
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Load A train stations data
-const stationsPath = path.resolve("./stations-a.json");
-const stations = JSON.parse(fs.readFileSync(stationsPath, "utf-8"));
+import dotenv from "dotenv";
+dotenv.config();
 
-// Enable CORS for your front-end
-app.use(cors({
-  origin: 'https://bookish-meme-wrx5j4vvw695cvgxp-8081.app.github.dev',
-  methods: ['GET', 'POST']
-}));
+const API_KEY = process.env.MTA_API_KEY;
 
+
+app.use(cors());
 app.use(express.json());
 
-// Helper: approximate distance
-const getDistance = (lat1, lon1, lat2, lon2) => {
-  return Math.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2);
-};
-
-// Endpoint: nearest A train stations
-app.get("/nearest-a", (req, res) => {
-  const lat = parseFloat(req.query.lat);
-  const lon = parseFloat(req.query.lon);
-  if (!lat || !lon) return res.status(400).json({ error: "lat and lon required" });
-
-  const nearestStations = stations
-    .map(s => ({ ...s, distance: getDistance(lat, lon, s.lat, s.lon) }))
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, 5);
-
-  res.json({ nearestStations });
-});
-
-// Endpoint: trips filtered by nearest stations
-app.get("/a-train-nearest", async (req, res) => {
+// Endpoint: nearest bus stops
+app.get("/nearest-bus", async (req, res) => {
   try {
     const lat = parseFloat(req.query.lat);
     const lon = parseFloat(req.query.lon);
-    if (!lat || !lon) return res.status(400).json({ error: "lat and lon required" });
+    if (isNaN(lat) || isNaN(lon)) return res.status(400).json({ error: "lat and lon required" });
 
-    const nearestStations = stations
-      .map(s => ({ ...s, distance: getDistance(lat, lon, s.lat, s.lon) }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 5);
+    // Fetch all stops for MTA NYCT
+    const stopsRes = await fetch(
+      `https://bustime.mta.info/api/where/stops-for-agency/MTA%20NYCT.json?key=${API_KEY}`
+    );
+    const stopsData = await stopsRes.json();
 
-    const nearestStopIds = nearestStations.map(s => s.stopId);
-
-    // Fetch GTFS feed
-    const MTA_API_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace";
-    const response = await fetch(MTA_API_URL);
-    if (!response.ok) throw new Error(`MTA API error: ${response.status}`);
-
-    const data = await response.arrayBuffer();
-    const feed = transit_realtime.FeedMessage.decode(new Uint8Array(data));
-
-    console.log("Total trips in feed:", feed.entity.length);
-    if (feed.entity.length > 0) console.log("First 5 trips:", feed.entity.slice(0, 5));
-
-    const trips = feed.entity
-      .filter(e => e.tripUpdate)
-      .map(e => ({
-        tripId: e.tripUpdate.trip.tripId,
-        stopTimes: (e.tripUpdate.stopTimeUpdate || [])
-          .filter(s => nearestStopIds.includes(s.stopId))
-          .map(s => ({
-            stopId: s.stopId,
-            arrival: s.arrival ? s.arrival.time.low : null
-          }))
+    const nearestStops = (stopsData.data?.list || [])
+      .map((s) => ({
+        stopId: s.id,
+        name: s.name,
+        lat: s.lat,
+        lon: s.lon,
+        distance: Math.sqrt((lat - s.lat) ** 2 + (lon - s.lon) ** 2),
       }))
-      .filter(t => t.stopTimes.length > 0);
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 5); // top 5 nearest
 
-    console.log("Trips matching nearest stations:", trips.length);
-
-    res.json({ trips });
+    res.json({ nearestStops });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to fetch MTA data" });
+    res.status(500).json({ error: "Failed to fetch bus stops" });
+  }
+});
+
+// Endpoint: upcoming arrivals at nearest stops
+app.get("/bus-times", async (req, res) => {
+  try {
+    const stopIds = (req.query.stops || "").split(",");
+    if (!stopIds.length) return res.status(400).json({ error: "stops query param required" });
+
+    const arrivalPromises = stopIds.map(async (stopId) => {
+      const stopRes = await fetch(
+        `https://bustime.mta.info/api/where/arrivals-and-departures-for-stop/${stopId}.json?key=${API_KEY}`
+      );
+      const data = await stopRes.json();
+      const predictions = data.data?.entry?.predictions || [];
+      return {
+        stopId,
+        arrivals: predictions.map((p) => ({
+          routeId: p.routeId,
+          routeShortName: p.routeShortName,
+          arrivalTime: p.arrivalTime, // ISO string
+        })),
+      };
+    });
+
+    const results = await Promise.all(arrivalPromises);
+    res.json({ stops: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch bus arrivals" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Bus API server running on port ${PORT}`);
 });
+
 
 
 

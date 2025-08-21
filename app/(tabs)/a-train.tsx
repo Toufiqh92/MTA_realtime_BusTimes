@@ -5,92 +5,80 @@ import {
   Text,
   View,
   RefreshControl,
-  Platform,
   ActivityIndicator,
 } from "react-native";
 import * as Location from "expo-location";
 
-type StopTime = { stopId: string; arrival: number | null };
-type Trip = { tripId: string; stopTimes: StopTime[] };
-type Station = { stopId: string; name: string; lat: number; lon: number; distance: number };
+type StopTime = {
+  routeId: string;
+  routeShortName: string;
+  arrivalTime: string | null;
+};
 
+type Stop = {
+  stopId: string;
+  name: string;
+  lat: number;
+  lon: number;
+  distance: number;
+  arrivals?: StopTime[];
+};
 
-const LOCAL_IP = "192.168.1.151";
-const CODESPACE_URL = "https://bookish-meme-wrx5j4vvw695cvgxp-3001.app.github.dev";
-
-const getStationsApiUrl = () => `${CODESPACE_URL}/nearest-a`;
-const getTripsApiUrl = () => `${CODESPACE_URL}/a-train-nearest`;
-
-export default function ATrainScreen() {
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [stations, setStations] = useState<Station[]>([]);
+export default function BusScreen() {
+  const [stops, setStops] = useState<Stop[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [usingMock, setUsingMock] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Mock fallback data
-  const mockStations: Station[] = [
-    { stopId: "R062", name: "59 St – Columbus Circle", lat: 40.768, lon: -73.981, distance: 0.5 },
-    { stopId: "R061", name: "50 St", lat: 40.761, lon: -73.982, distance: 1.2 },
-    { stopId: "R060", name: "42 St – Port Authority", lat: 40.757, lon: -73.989, distance: 1.5 },
-  ];
+  const CODESPACE_URL = "https://bookish-meme-wrx5j4vvw695cvgxp-3001.app.github.dev";
+  const getStopsApiUrl = () => `${CODESPACE_URL}/nearest-bus`;
+  const getArrivalsApiUrl = () => `${CODESPACE_URL}/bus-times`;
 
-  const mockTrips: Trip[] = [
-    {
-      tripId: "A123",
-      stopTimes: [
-        { stopId: "R062", arrival: Math.floor(Date.now() / 1000) + 120 },
-        { stopId: "R061", arrival: Math.floor(Date.now() / 1000) + 300 },
-      ],
-    },
-    {
-      tripId: "A456",
-      stopTimes: [
-        { stopId: "R062", arrival: Math.floor(Date.now() / 1000) + 600 },
-      ],
-    },
+  // Mock fallback
+  const mockStops: Stop[] = [
+    { stopId: "123", name: "Main St", lat: 40.620, lon: -73.995, distance: 0.5, arrivals: [] },
+    { stopId: "456", name: "Broadway", lat: 40.621, lon: -73.996, distance: 0.8, arrivals: [] },
   ];
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         console.warn("Location permission denied. Using mock data.");
-        setStations(mockStations);
-        setTrips(mockTrips);
+        setStops(mockStops);
         setUsingMock(true);
         setLastUpdated(new Date());
         return;
       }
 
-      // Get current location
       const location = await Location.getCurrentPositionAsync({});
       const lat = location.coords.latitude;
       const lon = location.coords.longitude;
-      console.log("User location:", lat, lon);
 
-      // Fetch nearest stations
-      const stationsRes = await fetch(`${getStationsApiUrl()}?lat=${lat}&lon=${lon}`);
-      const stationsData = await stationsRes.json();
+      // Fetch nearest bus stops
+      const stopsRes = await fetch(`${getStopsApiUrl()}?lat=${lat}&lon=${lon}`);
+      const stopsData = await stopsRes.json();
+      const nearestStops: Stop[] = stopsData.nearestStops;
 
-      // Fetch trips filtered for nearest stations
-      const tripsRes = await fetch(`${getTripsApiUrl()}?lat=${lat}&lon=${lon}`);
-      const tripsData = await tripsRes.json();
+      // Fetch arrivals for nearest stops
+      const stopIds = nearestStops.map((s) => s.stopId).join(",");
+      const arrivalsRes = await fetch(`${getArrivalsApiUrl()}?stops=${stopIds}`);
+      const arrivalsData = await arrivalsRes.json();
 
-      setStations(stationsData.nearestStations || []);
-      setTrips(tripsData.trips || []);
+      // Merge arrivals into stops
+      const stopsWithArrivals = nearestStops.map((s) => {
+        const stopArrivals = arrivalsData.stops.find((a: any) => a.stopId === s.stopId)?.arrivals || [];
+        return { ...s, arrivals: stopArrivals.slice(0, 3) }; // next 3 arrivals
+      });
+
+      setStops(stopsWithArrivals);
       setUsingMock(false);
       setLastUpdated(new Date());
-
-      console.log("Nearest stations:", stationsData.nearestStations);
-      console.log("Trips:", tripsData.trips);
     } catch (err) {
       console.warn("Using mock data due to fetch error:", err);
-      setStations(mockStations);
-      setTrips(mockTrips);
+      setStops(mockStops);
       setUsingMock(true);
       setLastUpdated(new Date());
     } finally {
@@ -101,7 +89,7 @@ export default function ATrainScreen() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // auto-refresh every 30s
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -110,20 +98,20 @@ export default function ATrainScreen() {
     fetchData();
   };
 
-  const formatArrivalTime = (timestamp: number | null) => {
-    if (!timestamp) return "N/A";
-    const now = Math.floor(Date.now() / 1000);
-    const diffMinutes = Math.floor((timestamp - now) / 60);
+  const formatArrivalTime = (arrivalTime: string | null) => {
+    if (!arrivalTime) return "N/A";
+    const arrivalDate = new Date(arrivalTime);
+    const now = new Date();
+    const diffMinutes = Math.round((arrivalDate.getTime() - now.getTime()) / 60000);
     if (diffMinutes <= 0) return "Due";
-    if (diffMinutes < 60) return `${diffMinutes} min`;
-    return new Date(timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return diffMinutes < 60 ? `${diffMinutes} min` : arrivalDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={{ marginTop: 10 }}>Loading A Train data...</Text>
+        <Text style={{ marginTop: 10 }}>Loading bus data...</Text>
       </View>
     );
   }
@@ -134,39 +122,25 @@ export default function ATrainScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.header}>
-        Nearest A Train Stations {usingMock ? "(Mock)" : ""}
+        Nearest Bus Stops {usingMock ? "(Mock)" : ""}
       </Text>
+      {lastUpdated && <Text style={styles.updated}>Updated: {lastUpdated.toLocaleTimeString()}</Text>}
+      {stops.length === 0 && <Text style={styles.noData}>No stops found</Text>}
 
-      {lastUpdated && (
-        <Text style={styles.updated}>
-          Updated: {lastUpdated.toLocaleTimeString()}
-        </Text>
-      )}
-
-      {stations.length === 0 && <Text style={styles.noData}>No stations found</Text>}
-
-      {stations.map((station) => {
-        const stationArrivals = trips
-          .map((t) => ({ tripId: t.tripId, stopTime: t.stopTimes.find((s) => s.stopId === station.stopId) }))
-          .filter((t) => t.stopTime)
-          .sort((a, b) => (a.stopTime?.arrival ?? Infinity) - (b.stopTime?.arrival ?? Infinity))
-          .slice(0, 3);
-
-        return (
-          <View key={station.stopId} style={styles.stationCard}>
-            <Text style={styles.stationName}>{station.name}</Text>
-            {stationArrivals.length === 0 ? (
-              <Text style={styles.noData}>No upcoming arrivals</Text>
-            ) : (
-              stationArrivals.map((t, idx) => (
-                <Text key={idx} style={styles.arrivalText}>
-                  Trip {t.tripId}: {formatArrivalTime(t.stopTime?.arrival ?? null)}
-                </Text>
-              ))
-            )}
-          </View>
-        );
-      })}
+      {stops.map((stop) => (
+        <View key={stop.stopId} style={styles.stationCard}>
+          <Text style={styles.stationName}>{stop.name}</Text>
+          {stop.arrivals && stop.arrivals.length > 0 ? (
+            stop.arrivals.map((a, idx) => (
+              <Text key={idx} style={styles.arrivalText}>
+                Route {a.routeShortName}: {formatArrivalTime(a.arrivalTime)}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.noData}>No upcoming arrivals</Text>
+          )}
+        </View>
+      ))}
     </ScrollView>
   );
 }
@@ -181,4 +155,5 @@ const styles = StyleSheet.create({
   noData: { fontSize: 16, color: "#666", textAlign: "center" },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
+
 
