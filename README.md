@@ -23,4 +23,5 @@
 4. Start the server
    ```bash
    npm run 
+   node server.js
    ```
