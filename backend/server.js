@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import supabase from "./supabaseClient.js"
 dotenv.config();
 
 const app = express();
