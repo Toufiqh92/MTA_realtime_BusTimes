@@ -1,1 +1,5 @@
 .env
+
+MTA_API_KEY=db9e43f0-5255-41e5-87b7-eb5df16fa67d
+SUPABASE_URL=https://tgkqxeenhnbaeqjectwd.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRna3F4ZWVuaG5iYWVxamVjdHdkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTcxNjc2NCwiZXhwIjoyMDcxMjkyNzY0fQ.N7Ody4qv2zIYAw4EyddjVvyD_f-8DirlmV3TEJDyco4
